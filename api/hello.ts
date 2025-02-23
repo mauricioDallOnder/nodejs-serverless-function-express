@@ -45,19 +45,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const key = fields.key as string;
     const nameField = fields.name as string;
     const descField = fields.desc as string;
-    const imageFile = files.image as File;
+   const imageFile = files.image as File;
 
-    if (!category || !key || !nameField || !descField || !imageFile) {
-      res.status(400).json({ error: 'Campos obrigatórios não foram enviados.' });
-      return;
-    }
+if (!category || !key || !nameField || !descField || !imageFile) {
+  res.status(400).json({ error: 'Campos obrigatórios não foram enviados.' });
+  return;
+}
 
-    // Verifica a propriedade do caminho do arquivo
-    const filePath = imageFile.filepath || (imageFile as any).path;
-    if (!filePath) {
-      res.status(400).json({ error: 'Caminho do arquivo não encontrado.' });
-      return;
-    }
+// Log para depuração
+console.log('Arquivo recebido:', JSON.stringify(imageFile, null, 2));
+
+const filePath = imageFile.filepath;
+console.log('Caminho do arquivo:', filePath); // Verifique no log da Vercel
+
+if (!filePath) {
+  res.status(400).json({ error: 'Caminho do arquivo não encontrado.' });
+  return;
+}
 
     // Lê o arquivo de imagem e converte para base64
     const imageData = await fs.readFile(filePath);
