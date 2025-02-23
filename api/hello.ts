@@ -10,11 +10,11 @@ export const config = {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Cabeçalhos CORS
-  res.setHeader('Access-Control-Allow-Origin', '*'); // ou especifique seu domínio
+  res.setHeader('Access-Control-Allow-Origin', '*'); // ou substitua "*" pelo seu domínio
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  // Requisições pré-flight
+  // Requisição pré-flight
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
@@ -52,12 +52,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    // Se o arquivo for um array, utiliza o primeiro
+    // Se o arquivo vier como array, usa o primeiro elemento
     if (Array.isArray(imageFile)) {
       imageFile = imageFile[0];
     }
 
-    // Tenta obter o caminho do arquivo (pode ser 'filepath' ou 'path')
+    // Tenta obter o caminho do arquivo (propriedade "filepath" ou "path")
     const filePath = (imageFile as any).filepath || (imageFile as any).path;
     if (!filePath) {
       console.error("Objeto do arquivo recebido:", imageFile);
@@ -84,7 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const imageUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${imagePathRepo}`;
     const commitMessageImage = `Adiciona nova imagem para ${key}`;
 
-    // Envia a imagem para o GitHub via API
+    // Envia a imagem via API do GitHub
     const uploadImageResponse = await fetch(imageUrl, {
       method: 'PUT',
       headers: {
@@ -108,7 +108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const jsonPath = 'correctAnswers.json';
     const jsonUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${jsonPath}`;
 
-    // Obtém o conteúdo atual do JSON
+    // Obtém o conteúdo atual do arquivo JSON
     const jsonResponse = await fetch(jsonUrl, {
       headers: { 'Authorization': `token ${GITHUB_TOKEN}` }
     });
@@ -121,13 +121,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const jsonData = await jsonResponse.json();
     const sha = jsonData.sha;
     const currentContent = Buffer.from(jsonData.content, 'base64').toString('utf-8');
-    let gameData: any;
-    try {
-      gameData = JSON.parse(currentContent);
-    } catch (parseError) {
-      console.error('Erro ao parsear JSON:', parseError);
-      res.status(500).json({ error: 'Erro ao parsear o arquivo JSON' });
-      return;
+
+    // Se o conteúdo estiver vazio ou apenas com espaços, inicializa como objeto vazio
+    let gameData: any = {};
+    if (!currentContent.trim()) {
+      gameData = {};
+    } else {
+      try {
+        gameData = JSON.parse(currentContent);
+      } catch (parseError) {
+        console.error('Erro ao parsear JSON:', parseError, 'Conteúdo:', currentContent);
+        res.status(500).json({ error: 'Erro ao parsear o arquivo JSON' });
+        return;
+      }
     }
 
     // Cria a categoria se ela não existir
@@ -135,11 +141,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       gameData[category] = {};
     }
 
-    // Normaliza os campos "name" e "desc" para que fiquem como strings
+    // Normaliza os campos "name" e "desc" para garantir que fiquem como strings
     const normalizedName = Array.isArray(nameField) ? nameField.join('') : nameField;
     const normalizedDesc = Array.isArray(descField) ? descField.join('') : descField;
 
-    // Adiciona a nova palavra na categoria com a estrutura correta
+    // Adiciona a nova palavra à categoria com a estrutura desejada
     gameData[category][key] = {
       name: normalizedName,
       img: imageFile.originalFilename,
