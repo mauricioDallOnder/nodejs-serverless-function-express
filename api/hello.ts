@@ -11,7 +11,7 @@ export const config = {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Cabeçalhos CORS
-  res.setHeader('Access-Control-Allow-Origin', '*'); // ou especifique seu domínio
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
@@ -27,7 +27,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Usa o IncomingForm diretamente, sem o default do formidable
+    // Instancia o IncomingForm do formidable
     const form = new IncomingForm();
 
     const { fields, files } = await new Promise<{ fields: Fields; files: Files }>((resolve, reject) => {
@@ -49,8 +49,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    // Verifica a propriedade do caminho do arquivo
+    const filePath = imageFile.filepath || (imageFile as any).path;
+    if (!filePath) {
+      res.status(400).json({ error: 'Caminho do arquivo não encontrado.' });
+      return;
+    }
+
     // Lê o arquivo de imagem e converte para base64
-    const imageData = await fs.readFile(imageFile.filepath);
+    const imageData = await fs.readFile(filePath);
     const imageBase64 = imageData.toString('base64');
 
     // Recupera as variáveis de ambiente
