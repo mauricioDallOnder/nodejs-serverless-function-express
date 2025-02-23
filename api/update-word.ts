@@ -9,24 +9,25 @@ export const config = {
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Cabeçalhos CORS
+  // Configuração dos cabeçalhos CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  // Trata requisições pré-flight
+  // Trata a requisição pre-flight (OPTIONS)
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
 
+  // Apenas aceita o método POST
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Método não permitido' });
     return;
   }
 
   try {
-    // Configura o IncomingForm para upload no diretório /tmp (permitido no ambiente serverless)
+    // Configura o IncomingForm para processamento de multipart/form-data
     const form = new IncomingForm({
       uploadDir: '/tmp',
       keepExtensions: true,
@@ -35,8 +36,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { fields, files } = await new Promise<{ fields: Fields; files: Files }>((resolve, reject) => {
       form.parse(req, (err, fields, files) => {
-        if (err) reject(err);
-        else resolve({ fields, files });
+        if (err) {
+          reject(err);
+        } else {
+          resolve({ fields, files });
+        }
       });
     });
 
@@ -51,7 +55,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    // Recupera as variáveis de ambiente
+    // Recupera as variáveis de ambiente necessárias para a API do GitHub
     const REPO_OWNER = process.env.REPO_OWNER;
     const REPO_NAME = process.env.REPO_NAME;
     const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -60,11 +64,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    // URL do arquivo JSON no GitHub
+    // URL e caminho do arquivo JSON que contém os dados do jogo
     const jsonPath = 'correctAnswers.json';
     const jsonUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${jsonPath}`;
 
-    // Busca o arquivo JSON atual no GitHub
+    // Obtém o arquivo JSON atual do GitHub
     const jsonResponse = await fetch(jsonUrl, {
       headers: { 'Authorization': `token ${GITHUB_TOKEN}` }
     });
@@ -76,7 +80,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const jsonData = await jsonResponse.json();
     const shaJson = jsonData.sha;
     let currentContent = Buffer.from(jsonData.content, 'base64').toString('utf-8');
-    // Se o conteúdo estiver vazio, inicializa com objeto vazio
     let gameData: any = {};
     if (currentContent.trim() !== '') {
       try {
@@ -88,14 +91,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // Verifica se a categoria e a palavra (key) existem
+    // Verifica se a categoria e a palavra (key) existem para atualização
     if (!gameData[category] || !gameData[category][key]) {
       res.status(404).json({ error: 'Palavra não encontrada para update.' });
       return;
     }
 
+    // Normaliza os campos "name" e "desc" para strings
+    const normalizedName = Array.isArray(nameField) ? nameField.join('') : nameField;
+    const normalizedDesc = Array.isArray(descField) ? descField.join('') : descField;
+
+    // Prepara os valores para imagem: mantém os atuais, caso não seja enviado novo arquivo
+    let updatedImg = gameData[category][key].img;
+    let updatedImgUrl = gameData[category][key].imgUrl;
+
     // Se um novo arquivo de imagem foi enviado, atualiza a imagem
-    let newImageFileName = gameData[category][key].img; // mantém o nome atual se não for alterado
     if (files.image) {
       let imageFile = files.image as File | File[];
       if (Array.isArray(imageFile)) {
@@ -107,17 +117,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.status(400).json({ error: 'Caminho do arquivo não encontrado para a imagem.' });
         return;
       }
+      // Lê o arquivo e converte para base64
       const imageData = await fs.readFile(filePath);
       const imageBase64 = imageData.toString('base64');
 
-      // Define o caminho da imagem no repositório (por exemplo, na pasta "imgs")
-      newImageFileName = imageFile.originalFilename;
-      const imagePathRepo = `imgs/${newImageFileName}`;
-      const imageUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${imagePathRepo}`;
+      updatedImg = imageFile.originalFilename;
+      const imagePathRepo = `imgs/${updatedImg}`;
+      const imageUrlForGit = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${imagePathRepo}`;
 
-      // Tenta buscar o arquivo de imagem atual para obter seu sha (se existir)
+      // Tenta buscar o arquivo de imagem atual para obter seu sha (caso exista)
       let currentImageSha: string | undefined;
-      const getImageResponse = await fetch(imageUrl, {
+      const getImageResponse = await fetch(imageUrlForGit, {
         headers: { 'Authorization': `token ${GITHUB_TOKEN}` }
       });
       if (getImageResponse.ok) {
@@ -125,7 +135,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         currentImageSha = imageJson.sha;
       }
 
-      // Envia a imagem (faz o PUT para criar ou atualizar)
+      // Monta o corpo da requisição para atualizar a imagem
       const commitMessageImage = `Atualiza imagem para a palavra ${key}`;
       const bodyImage: any = {
         message: commitMessageImage,
@@ -134,7 +144,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (currentImageSha) {
         bodyImage.sha = currentImageSha;
       }
-      const updateImageResponse = await fetch(imageUrl, {
+      const updateImageResponse = await fetch(imageUrlForGit, {
         method: 'PUT',
         headers: {
           'Authorization': `token ${GITHUB_TOKEN}`,
@@ -147,23 +157,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.status(500).json({ error: 'Erro ao atualizar a imagem no GitHub', details: errorData });
         return;
       }
-      // Atualiza os campos de imagem na entrada
-      gameData[category][key].img = newImageFileName;
-      gameData[category][key].imgUrl = `./${imagePathRepo}`;
+      updatedImgUrl = `./${imagePathRepo}`;
     }
 
-    // Normaliza os campos "name" e "desc" para strings
-    const normalizedName = Array.isArray(nameField) ? nameField.join('') : nameField;
-    const normalizedDesc = Array.isArray(descField) ? descField.join('') : descField;
-    gameData[category][key].name = normalizedName;
-    gameData[category][key].desc = normalizedDesc;
+    // Agora substituímos completamente o objeto da palavra para evitar duplicações
+    gameData[category][key] = {
+      name: normalizedName,
+      img: updatedImg,
+      imgUrl: updatedImgUrl,
+      desc: normalizedDesc
+    };
 
-    // Converte o JSON atualizado para base64
+    // Converte o JSON atualizado para base64 e envia o PUT para o GitHub
     const updatedContent = JSON.stringify(gameData, null, 2);
     const updatedContentBase64 = Buffer.from(updatedContent).toString('base64');
     const commitMessageJSON = `Atualiza palavra ${key} na categoria ${category}`;
 
-    // Atualiza o arquivo JSON via API do GitHub
     const updateJSONResponse = await fetch(jsonUrl, {
       method: 'PUT',
       headers: {
