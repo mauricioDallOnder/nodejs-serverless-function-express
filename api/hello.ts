@@ -10,11 +10,11 @@ export const config = {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Cabeçalhos CORS
-  res.setHeader('Access-Control-Allow-Origin', '*'); // ou substitua "*" pelo seu domínio
+  res.setHeader('Access-Control-Allow-Origin', '*'); // ou especifique seu domínio
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  // Requisição pré-flight
+  // Requisições pré-flight
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
@@ -26,7 +26,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Configura o IncomingForm para salvar em /tmp, manter as extensões e permitir apenas um arquivo
+    // Configura o IncomingForm para salvar em /tmp, manter extensões e permitir apenas um arquivo
     const form = new IncomingForm({
       uploadDir: '/tmp',
       keepExtensions: true,
@@ -52,7 +52,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    // Se o arquivo vier como array, usa o primeiro elemento
+    // Se o arquivo vier como array, utiliza o primeiro elemento
     if (Array.isArray(imageFile)) {
       imageFile = imageFile[0];
     }
@@ -120,19 +120,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const jsonData = await jsonResponse.json();
     const sha = jsonData.sha;
-    const currentContent = Buffer.from(jsonData.content, 'base64').toString('utf-8');
-
-    // Se o conteúdo estiver vazio ou apenas com espaços, inicializa como objeto vazio
     let gameData: any = {};
-    if (!currentContent.trim()) {
+
+    if (!jsonData.content) {
+      // Se não houver conteúdo, inicializa como objeto vazio
       gameData = {};
     } else {
-      try {
-        gameData = JSON.parse(currentContent);
-      } catch (parseError) {
-        console.error('Erro ao parsear JSON:', parseError, 'Conteúdo:', currentContent);
-        res.status(500).json({ error: 'Erro ao parsear o arquivo JSON' });
-        return;
+      let decodedContent = Buffer.from(jsonData.content, 'base64').toString('utf-8');
+      // Remove BOM, se existir
+      if (decodedContent.charCodeAt(0) === 0xFEFF) {
+        decodedContent = decodedContent.slice(1);
+      }
+      const trimmedContent = decodedContent.trim();
+      if (trimmedContent === '') {
+        gameData = {};
+      } else {
+        try {
+          gameData = JSON.parse(trimmedContent);
+        } catch (parseError) {
+          console.error('Erro ao parsear JSON:', parseError, 'Conteúdo:', trimmedContent);
+          res.status(500).json({ error: 'Erro ao parsear o arquivo JSON', details: parseError instanceof Error ? parseError.message : String(parseError) });
+          return;
+        }
       }
     }
 
@@ -145,7 +154,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const normalizedName = Array.isArray(nameField) ? nameField.join('') : nameField;
     const normalizedDesc = Array.isArray(descField) ? descField.join('') : descField;
 
-    // Adiciona a nova palavra à categoria com a estrutura desejada
+    // Adiciona a nova palavra na categoria com a estrutura desejada
     gameData[category][key] = {
       name: normalizedName,
       img: imageFile.originalFilename,
