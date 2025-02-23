@@ -27,8 +27,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Instancia o IncomingForm do formidable
-    const form = new IncomingForm();
+    // Configura o IncomingForm com uploadDir e keepExtensions para garantir que o arquivo seja salvo
+    const form = new IncomingForm({
+      uploadDir: '/tmp',
+      keepExtensions: true,
+    });
 
     const { fields, files } = await new Promise<{ fields: Fields; files: Files }>((resolve, reject) => {
       form.parse(req, (err, fields, files) => {
