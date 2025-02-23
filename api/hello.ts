@@ -2,7 +2,6 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { IncomingForm, Fields, Files, File } from 'formidable';
 import fs from 'fs/promises';
 
-// Desabilita o body parser padrão para permitir o parsing do multipart/form-data
 export const config = {
   api: {
     bodyParser: false,
@@ -15,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  // Trata requisições pré-flight
+  // Requisição pré-flight
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
@@ -27,10 +26,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Configura o IncomingForm com uploadDir e keepExtensions para garantir que o arquivo seja salvo
+    // Configura o IncomingForm para salvar em /tmp e garantir que só um arquivo seja enviado
     const form = new IncomingForm({
       uploadDir: '/tmp',
       keepExtensions: true,
+      multiples: false,
     });
 
     const { fields, files } = await new Promise<{ fields: Fields; files: Files }>((resolve, reject) => {
@@ -45,29 +45,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const key = fields.key as string;
     const nameField = fields.name as string;
     const descField = fields.desc as string;
-   const imageFile = files.image as File;
+    let imageFile = files.image as File | File[];
 
-if (!category || !key || !nameField || !descField || !imageFile) {
-  res.status(400).json({ error: 'Campos obrigatórios não foram enviados.' });
-  return;
-}
+    if (!category || !key || !nameField || !descField || !imageFile) {
+      res.status(400).json({ error: 'Campos obrigatórios não foram enviados.' });
+      return;
+    }
 
-// Log para depuração
-console.log('Arquivo recebido:', JSON.stringify(imageFile, null, 2));
+    // Se o arquivo vier como array, usa o primeiro
+    if (Array.isArray(imageFile)) {
+      imageFile = imageFile[0];
+    }
 
-const filePath = imageFile.filepath;
-console.log('Caminho do arquivo:', filePath); // Verifique no log da Vercel
+    // Tenta obter o caminho do arquivo; para debug, loga o objeto recebido
+    const filePath = (imageFile as any).filepath || (imageFile as any).path;
+    if (!filePath) {
+      console.error("Objeto do arquivo recebido:", imageFile);
+      res.status(400).json({ error: 'Caminho do arquivo não encontrado.' });
+      return;
+    }
 
-if (!filePath) {
-  res.status(400).json({ error: 'Caminho do arquivo não encontrado.' });
-  return;
-}
-
-    // Lê o arquivo de imagem e converte para base64
+    // Lê o arquivo e converte para base64
     const imageData = await fs.readFile(filePath);
     const imageBase64 = imageData.toString('base64');
 
-    // Recupera as variáveis de ambiente
+    // Variáveis de ambiente
     const REPO_OWNER = process.env.REPO_OWNER;
     const REPO_NAME = process.env.REPO_NAME;
     const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -77,12 +79,12 @@ if (!filePath) {
       return;
     }
 
-    // Define o caminho da imagem no repositório (na pasta "imgs")
-    const imagePath = `imgs/${imageFile.originalFilename}`;
-    const imageUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${imagePath}`;
+    // Define o caminho da imagem no repositório (pasta "imgs")
+    const imagePathRepo = `imgs/${imageFile.originalFilename}`;
+    const imageUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${imagePathRepo}`;
     const commitMessageImage = `Adiciona nova imagem para ${key}`;
 
-    // Envia a imagem via API do GitHub
+    // Faz o upload da imagem para o GitHub
     const uploadImageResponse = await fetch(imageUrl, {
       method: 'PUT',
       headers: {
@@ -102,11 +104,11 @@ if (!filePath) {
       return;
     }
 
-    // Atualiza o arquivo JSON (correctAnswers.json)
+    // Atualiza o JSON (correctAnswers.json)
     const jsonPath = 'correctAnswers.json';
     const jsonUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${jsonPath}`;
 
-    // Obtém o conteúdo atual do arquivo JSON
+    // Obtém o conteúdo atual do JSON
     const jsonResponse = await fetch(jsonUrl, {
       headers: { 'Authorization': `token ${GITHUB_TOKEN}` }
     });
@@ -128,25 +130,24 @@ if (!filePath) {
       return;
     }
 
-    // Cria a categoria se não existir
+    // Se a categoria não existir, cria-a
     if (!gameData[category]) {
       gameData[category] = {};
     }
 
-    // Adiciona a nova palavra à categoria
+    // Adiciona a nova palavra na categoria
     gameData[category][key] = {
       name: nameField,
-      img: imageFile.originalFilename, // nome do arquivo da imagem
-      imgUrl: `./${imagePath}`,
+      img: imageFile.originalFilename,
+      imgUrl: `./${imagePathRepo}`,
       desc: descField
     };
 
-    // Prepara o novo conteúdo JSON e converte para base64
+    // Atualiza o JSON
     const updatedContent = JSON.stringify(gameData, null, 2);
     const updatedContentBase64 = Buffer.from(updatedContent).toString('base64');
     const commitMessageJSON = `Atualiza ${jsonPath} com a nova palavra ${key}`;
 
-    // Atualiza o arquivo JSON via API do GitHub
     const updateJSONResponse = await fetch(jsonUrl, {
       method: 'PUT',
       headers: {
