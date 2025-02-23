@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import formidable, { IncomingForm, Fields, Files, File } from 'formidable';
+import { IncomingForm, Fields, Files, File } from 'formidable';
 import fs from 'fs/promises';
 
 // Desabilita o body parser padrão para permitir o parsing do multipart/form-data
@@ -10,12 +10,12 @@ export const config = {
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Define os cabeçalhos CORS
-  res.setHeader('Access-Control-Allow-Origin', '*'); // ou substitua "*" pelo seu domínio, ex: "https://mauriciodallonder.github.io"
+  // Cabeçalhos CORS
+  res.setHeader('Access-Control-Allow-Origin', '*'); // ou especifique seu domínio
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  // Se for requisição pré-flight, encerre a resposta
+  // Trata requisições pré-flight
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
@@ -27,15 +27,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Promisifica o parsing do formulário com formidable
+    // Usa o IncomingForm diretamente, sem o default do formidable
+    const form = new IncomingForm();
+
     const { fields, files } = await new Promise<{ fields: Fields; files: Files }>((resolve, reject) => {
-      const form: IncomingForm = new formidable.IncomingForm();
       form.parse(req, (err, fields, files) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve({ fields, files });
-        }
+        if (err) reject(err);
+        else resolve({ fields, files });
       });
     });
 
@@ -116,7 +114,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    // Cria a categoria caso ela não exista
+    // Cria a categoria se não existir
     if (!gameData[category]) {
       gameData[category] = {};
     }
